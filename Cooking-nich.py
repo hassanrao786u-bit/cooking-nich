@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta, timezone
 
-API_KEY = st.secrets["AIzaSyDWt0cyoD9yTXHRMNFVvEdlBZZa0suIuPU"]
+   API_KEY = st.secrets["API_KEY"]
 
 SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 VIDEO_URL = "https://www.googleapis.com/youtube/v3/videos"
