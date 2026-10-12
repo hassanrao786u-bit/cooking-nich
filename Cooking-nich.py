@@ -1,239 +1,83 @@
-
-Weekly Viral Topics
-YOUTUBE API KEY : 
-
-
-
-Viral Topics Tool
-
-
-
-
-
-
-Make youtube API (Google Cloud Console, and then enable youtube APi services)
-Github repository
-Make app on streamlit
-Go to streamlit cloud
-Sign In
-Launch your app
-
-
-Code:
-
-
-
 import streamlit as st
-
 import requests
+from datetime import datetime, timedelta, timezone
 
-from datetime import datetime, timedelta
+API_KEY = st.secrets["AIzaSyDWt0cyoD9yTXHRMNFVvEdlBZZa0suIuPU"]
 
-
-# YouTube API Key
-
-API_KEY = "AIzaSyCAXVLm2uhRkp2bZVTcWh44Oj01TlTX138"
-
-YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-
-YOUTUBE_VIDEO_URL = "https://www.googleapis.com/youtube/v3/videos"
-
-YOUTUBE_CHANNEL_URL = "https://www.googleapis.com/youtube/v3/channels"
-
-
-# Streamlit App Title
+SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+VIDEO_URL = "https://www.googleapis.com/youtube/v3/videos"
+CHANNEL_URL = "https://www.googleapis.com/youtube/v3/channels"
 
 st.title("YouTube Viral Topics Tool")
 
-
-# Input Fields
-
 days = st.number_input("Enter Days to Search (1-30):", min_value=1, max_value=30, value=5)
-
-
-# List of broader keywords
+max_subs = st.number_input("Max subscribers:", min_value=100, value=3000, step=500)
 
 keywords = [
-"Dinner Recipes", "Easy Dinner Recipes", "Quick Dinner Recipes", "High Protein Breakfast",
-"Breakfast Ideas", "Easy Breakfast Recipes", "Garlic Bread Recipe", "Ground Beef Recipes",
-"No Bake Dessert", "Easy Dessert Recipes", "One Pot Meals", "Cold Coffee Recipe",
-"Potato Snacks", "Potato Recipes", "Easy Snacks", "Crispy Snacks", "Air Fryer Snacks",
-"Air Fryer Recipes", "Cheesy Eggs", "Milk Toast Recipe", "Easy Lunch Ideas",
-"Chicken Recipes", "Egg Recipes", "Pasta Recipe", "Cooking Hacks", "Home Cooking",
-"Food Shorts", "Recipe Shorts", "Easy Meal Ideas", "Healthy Recipes", "Viral Recipe"
+    "Dinner Recipes", "Easy Dinner Recipes", "Quick Dinner Recipes",
+    "High Protein Breakfast", "Breakfast Ideas", "Air Fryer Recipes",
+    "Easy Dessert Recipes", "One Pot Meals", "Potato Recipes", "Cooking Hacks",
 ]
+selected = st.multiselect("Keywords", keywords, default=keywords[:5])
 
 
-# Fetch Data Button
+def call_api(url, params):
+    r = requests.get(url, params=params, timeout=15)
+    data = r.json()
+    if "error" in data:
+        raise RuntimeError(data["error"].get("message", "API error"))
+    return data
+
 
 if st.button("Fetch Data"):
-
     try:
+        start_date = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        results = []
 
-        # Calculate date range
+        for kw in selected:
+            data = call_api(SEARCH_URL, {
+                "part": "snippet", "q": kw, "type": "video",
+                "order": "viewCount", "publishedAfter": start_date,
+                "maxResults": 5, "key": API_KEY,
+            })
+            videos = data.get("items", [])
+            if not videos:
+                st.warning(f"No videos for: {kw}")
+                continue
 
-        start_date = (datetime.utcnow() - timedelta(days=int(days))).isoformat("T") + "Z"
+            video_ids = [v["id"]["videoId"] for v in videos if "videoId" in v.get("id", {})]
+            channel_ids = list({v["snippet"]["channelId"] for v in videos})
 
-        all_results = []
+            vstats = call_api(VIDEO_URL, {"part": "statistics", "id": ",".join(video_ids), "key": API_KEY})
+            cstats = call_api(CHANNEL_URL, {"part": "statistics", "id": ",".join(channel_ids), "key": API_KEY})
 
-
-        # Iterate over the list of keywords
-
-        for keyword in keywords:
-
-            st.write(f"Searching for keyword: {keyword}")
-
-
-            # Define search parameters
-
-            search_params = {
-
-                "part": "snippet",
-
-                "q": keyword,
-
-                "type": "video",
-
-                "order": "viewCount",
-
-                "publishedAfter": start_date,
-
-                "maxResults": 5,
-
-                "key": API_KEY,
-
+            views_by_id = {i["id"]: int(i["statistics"].get("viewCount", 0)) for i in vstats.get("items", [])}
+            subs_by_id = {
+                c["id"]: int(c["statistics"].get("subscriberCount", 0))
+                for c in cstats.get("items", [])
+                if not c["statistics"].get("hiddenSubscriberCount", False)
             }
 
-
-            # Fetch video data
-
-            response = requests.get(YOUTUBE_SEARCH_URL, params=search_params)
-
-            data = response.json()
-
-
-            # Check if "items" key exists
-
-            if "items" not in data or not data["items"]:
-
-                st.warning(f"No videos found for keyword: {keyword}")
-
-                continue
-
-
-            videos = data["items"]
-
-            video_ids = [video["id"]["videoId"] for video in videos if "id" in video and "videoId" in video["id"]]
-
-            channel_ids = [video["snippet"]["channelId"] for video in videos if "snippet" in video and "channelId" in video["snippet"]]
-
-
-            if not video_ids or not channel_ids:
-
-                st.warning(f"Skipping keyword: {keyword} due to missing video/channel data.")
-
-                continue
-
-
-            # Fetch video statistics
-
-            stats_params = {"part": "statistics", "id": ",".join(video_ids), "key": API_KEY}
-
-            stats_response = requests.get(YOUTUBE_VIDEO_URL, params=stats_params)
-
-            stats_data = stats_response.json()
-
-
-            if "items" not in stats_data or not stats_data["items"]:
-
-                st.warning(f"Failed to fetch video statistics for keyword: {keyword}")
-
-                continue
-
-
-            # Fetch channel statistics
-
-            channel_params = {"part": "statistics", "id": ",".join(channel_ids), "key": API_KEY}
-
-            channel_response = requests.get(YOUTUBE_CHANNEL_URL, params=channel_params)
-
-            channel_data = channel_response.json()
-
-
-            if "items" not in channel_data or not channel_data["items"]:
-
-                st.warning(f"Failed to fetch channel statistics for keyword: {keyword}")
-
-                continue
-
-
-            stats = stats_data["items"]
-
-            channels = channel_data["items"]
-
-
-            # Collect results
-
-            for video, stat, channel in zip(videos, stats, channels):
-
-                title = video["snippet"].get("title", "N/A")
-
-                description = video["snippet"].get("description", "")[:200]
-
-                video_url = f"https://www.youtube.com/watch?v={video['id']['videoId']}"
-
-                views = int(stat["statistics"].get("viewCount", 0))
-
-                subs = int(channel["statistics"].get("subscriberCount", 0))
-
-
-                if subs < 3000:  # Only include channels with fewer than 3,000 subscribers
-
-                    all_results.append({
-
-                        "Title": title,
-
-                        "Description": description,
-
-                        "URL": video_url,
-
-                        "Views": views,
-
-                        "Subscribers": subs
-
+            for v in videos:
+                vid = v.get("id", {}).get("videoId")
+                ch = v["snippet"]["channelId"]
+                if vid not in views_by_id or ch not in subs_by_id:
+                    continue
+                if subs_by_id[ch] < max_subs:
+                    results.append({
+                        "Title": v["snippet"].get("title", "N/A"),
+                        "URL": f"https://www.youtube.com/watch?v={vid}",
+                        "Views": views_by_id[vid],
+                        "Subscribers": subs_by_id[ch],
+                        "Keyword": kw,
                     })
 
-
-        # Display results
-
-        if all_results:
-
-            st.success(f"Found {len(all_results)} results across all keywords!")
-
-            for result in all_results:
-
-                st.markdown(
-
-                    f"**Title:** {result['Title']}  \n"
-
-                    f"**Description:** {result['Description']}  \n"
-
-                    f"**URL:** [Watch Video]({result['URL']})  \n"
-
-                    f"**Views:** {result['Views']}  \n"
-
-                    f"**Subscribers:** {result['Subscribers']}"
-
-                )
-
-                st.write("---")
-
+        if results:
+            results.sort(key=lambda x: x["Views"], reverse=True)
+            st.success(f"Found {len(results)} results")
+            st.dataframe(results, column_config={"URL": st.column_config.LinkColumn()})
         else:
-
-            st.warning("No results found for channels with fewer than 3,000 subscribers.")
-
+            st.warning("No results found.")
 
     except Exception as e:
-
-        st.error(f"An error occurred: {e}")
-
+        st.error(f"Error: {e}")
